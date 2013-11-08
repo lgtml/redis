@@ -485,6 +485,7 @@ long long getExpire(redisDb *db, robj *key) {
  * keys. */
 void propagateExpire(redisDb *db, robj *key) {
     robj *argv[2];
+    robj *channel;
 
     argv[0] = shared.del;
     argv[1] = key;
@@ -496,6 +497,8 @@ void propagateExpire(redisDb *db, robj *key) {
     if (listLength(server.slaves))
         replicationFeedSlaves(server.slaves,db->id,argv,2);
 
+    channel = createStringObject(REDIS_EXPIRE_CHANNEL,strlen(REDIS_EXPIRE_CHANNEL));
+    pubsubPublishMessage(channel,key);
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
 }
