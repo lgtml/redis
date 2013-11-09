@@ -341,6 +341,7 @@ typedef struct redisObject {
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
+    dict *notify_expires;       /* Boolean Keys to notify on expire */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
@@ -1025,6 +1026,7 @@ void resetServerSaveParams();
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
+void notifyExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(redisDb *db, robj *key, long long when);
@@ -1136,6 +1138,7 @@ void mgetCommand(redisClient *c);
 void monitorCommand(redisClient *c);
 void expireCommand(redisClient *c);
 void expireatCommand(redisClient *c);
+void expireNotifyCommand(redisClient *c);
 void pexpireCommand(redisClient *c);
 void pexpireatCommand(redisClient *c);
 void getsetCommand(redisClient *c);
