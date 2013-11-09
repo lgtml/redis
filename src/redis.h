@@ -93,7 +93,6 @@
 #define REDIS_RUN_ID_SIZE 40
 #define REDIS_OPS_SEC_SAMPLES 16
 #define REDIS_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
-#define REDIS_EXPIRE_CHANNEL "__expire__"
 
 #define ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP 20 /* Loopkups per loop. */
 #define ACTIVE_EXPIRE_CYCLE_FAST_DURATION 1000 /* Microseconds */

@@ -467,7 +467,7 @@ void setExpireNotify(redisClient *c) {
     redisAssertWithInfo(NULL,key,kde != NULL);
     de = dictReplaceRaw(c->db->notify_expires,dictGetKey(kde));
 
-    /* Will change to support dynamic channel */
+    /* Set Value to Channel Name */
     dictSetVal(c->db->notify_expires,de,channel);
 }
 
