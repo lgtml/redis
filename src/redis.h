@@ -1026,7 +1026,7 @@ void resetServerSaveParams();
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
-void notifyExpire(redisDb *db, robj *key);
+void notifyExpire(redisDb *db, robj *key, robj *channel);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(redisDb *db, robj *key, long long when);

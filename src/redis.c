@@ -202,7 +202,7 @@ struct redisCommand redisCommandTable[] = {
     {"rename",renameCommand,3,"w",0,renameGetKeys,1,2,1,0,0},
     {"renamenx",renamenxCommand,3,"w",0,renameGetKeys,1,2,1,0,0},
     {"expire",expireCommand,3,"w",0,NULL,1,1,1,0,0},
-    {"nexpire",expireNotifyCommand,3,"w",0,NULL,1,1,1,0,0},
+    {"texpire",expireNotifyCommand,4,"w",0,NULL,1,1,1,0,0},
     {"expireat",expireatCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpire",pexpireCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpireat",pexpireatCommand,3,"w",0,NULL,1,1,1,0,0},

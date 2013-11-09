@@ -457,15 +457,10 @@ int removeExpireNotify(redisDb *db, robj *key) {
     return dictDelete(db->notify_expires,key->ptr) == DICT_OK;
 }
 
-int setExpireNotify(redisClient *c) {
+void setExpireNotify(redisClient *c) {
     dictEntry *kde, *de;
+    robj *channel = createStringObject(c->argv[3]->ptr,sdslen(c->argv[3]->ptr));
     robj *key = c->argv[1];
-    // *param = c->argv[2];
-
-    /* No key, return zero. */
-    if (lookupKeyRead(c->db,key) == NULL) {
-        return 1;
-    }
 
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(c->db->dict,key->ptr);
@@ -473,8 +468,7 @@ int setExpireNotify(redisClient *c) {
     de = dictReplaceRaw(c->db->notify_expires,dictGetKey(kde));
 
     /* Will change to support dynamic channel */
-    dictSetVal(c->db->notify_expires,de,REDIS_EXPIRE_CHANNEL);
-    return 0;
+    dictSetVal(c->db->notify_expires,de,channel);
 }
 
 void setExpire(redisDb *db, robj *key, long long when) {
@@ -525,15 +519,14 @@ void propagateExpire(redisDb *db, robj *key) {
         replicationFeedSlaves(server.slaves,db->id,argv,2);
 
     if ((de = dictFind(db->notify_expires,key->ptr)) != NULL) {
-      notifyExpire(db,key);
+      robj *channel = dictGetVal(de);
+      notifyExpire(db, key, channel);
     }
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
 }
 
-void notifyExpire(redisDb *db, robj *key) {
-    robj *channel;
-    channel = createStringObject(REDIS_EXPIRE_CHANNEL,strlen(REDIS_EXPIRE_CHANNEL));
+void notifyExpire(redisDb *db, robj *key, robj *channel) {
     pubsubPublishMessage(channel,key);
     removeExpireNotify(db, key);
 }
