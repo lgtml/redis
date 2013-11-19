@@ -450,6 +450,26 @@ int removeExpire(redisDb *db, robj *key) {
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
+int removeExpireNotify(redisDb *db, robj *key) {
+    /* An expire notify can be removed with out removing the
+     * expire, assert if key does not exists in main dict */
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    return dictDelete(db->notify_expires,key->ptr) == DICT_OK;
+}
+
+void setExpireNotify(redisClient *c,robj *key) {
+    dictEntry *kde, *de;
+    robj *channel = createStringObject(c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
+
+    /* Reuse the sds from the main dict in the expire dict */
+    kde = dictFind(c->db->dict,key->ptr);
+    redisAssertWithInfo(NULL,key,kde != NULL);
+    de = dictReplaceRaw(c->db->notify_expires,dictGetKey(kde));
+
+    /* Set Value to Channel Name */
+    dictSetVal(c->db->notify_expires,de,channel);
+}
+
 void setExpire(redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
@@ -485,6 +505,7 @@ long long getExpire(redisDb *db, robj *key) {
  * keys. */
 void propagateExpire(redisDb *db, robj *key) {
     robj *argv[2];
+    dictEntry *de;
 
     argv[0] = shared.del;
     argv[1] = key;
@@ -496,8 +517,17 @@ void propagateExpire(redisDb *db, robj *key) {
     if (listLength(server.slaves))
         replicationFeedSlaves(server.slaves,db->id,argv,2);
 
+    if ((de = dictFind(db->notify_expires,key->ptr)) != NULL) {
+      robj *channel = dictGetVal(de);
+      notifyExpire(db, key, channel);
+    }
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
+}
+
+void notifyExpire(redisDb *db, robj *key, robj *channel) {
+    pubsubPublishMessage(channel,key);
+    removeExpireNotify(db, key);
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
@@ -549,11 +579,6 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    /* No key, return zero. */
-    if (lookupKeyRead(c->db,key) == NULL) {
-        addReply(c,shared.czero);
-        return;
-    }
 
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
@@ -583,20 +608,59 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     }
 }
 
+int checkKeyExists(redisClient *c, robj *key) {
+    /* No key, return zero. */
+    if (lookupKeyRead(c->db,key) == NULL) {
+        addReply(c,shared.czero);
+        return 0;
+    }
+
+    return 1;
+}
+
+
+void expireNotifyCommand(redisClient *c) {
+    robj *key = c->argv[2];
+    robj *topic = c->argv[1];
+
+    if (checkKeyExists(c,key) == 1) {
+        setExpireNotify(c,key);
+
+        // RE-arrange argv
+        c->argv[1] = c->argv[2];
+        c->argv[2] = c->argv[3];
+        c->argv[3] = topic;
+
+        expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    }
+}
+
 void expireCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    }
 }
 
 void expireatCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_SECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,0,UNIT_SECONDS);
+    }
 }
 
 void pexpireCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    }
 }
 
 void pexpireatCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_MILLISECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,0,UNIT_MILLISECONDS);
+    }
 }
 
 void ttlGenericCommand(redisClient *c, int output_ms) {
@@ -630,6 +694,7 @@ void persistCommand(redisClient *c) {
         addReply(c,shared.czero);
     } else {
         if (removeExpire(c->db,c->argv[1])) {
+            removeExpireNotify(c->db,c->argv[1]);
             addReply(c,shared.cone);
             server.dirty++;
         } else {

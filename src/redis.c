@@ -202,6 +202,7 @@ struct redisCommand redisCommandTable[] = {
     {"rename",renameCommand,3,"w",0,renameGetKeys,1,2,1,0,0},
     {"renamenx",renamenxCommand,3,"w",0,renameGetKeys,1,2,1,0,0},
     {"expire",expireCommand,3,"w",0,NULL,1,1,1,0,0},
+    {"texpire",expireNotifyCommand,4,"w",0,NULL,1,1,1,0,0},
     {"expireat",expireatCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpire",pexpireCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpireat",pexpireatCommand,3,"w",0,NULL,1,1,1,0,0},
@@ -575,6 +576,8 @@ void tryResizeHashTables(int dbid) {
         dictResize(server.db[dbid].dict);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
+    if (htNeedsResize(server.db[dbid].notify_expires))
+        dictResize(server.db[dbid].notify_expires);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -593,6 +596,11 @@ int incrementallyRehash(int dbid) {
     /* Expires */
     if (dictIsRehashing(server.db[dbid].expires)) {
         dictRehashMilliseconds(server.db[dbid].expires,1);
+        return 1; /* already used our millisecond for this loop... */
+    }
+    /* Notify Expires */
+    if (dictIsRehashing(server.db[dbid].notify_expires)) {
+        dictRehashMilliseconds(server.db[dbid].notify_expires,1);
         return 1; /* already used our millisecond for this loop... */
     }
     return 0;
@@ -1000,13 +1008,19 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Show some info about non-empty databases */
     run_with_period(5000) {
         for (j = 0; j < server.dbnum; j++) {
-            long long size, used, vkeys;
+            long long size, used, vkeys, nkeys;
+            long long tkeys;
 
             size = dictSlots(server.db[j].dict);
             used = dictSize(server.db[j].dict);
             vkeys = dictSize(server.db[j].expires);
+            nkeys = dictSize(server.db[j].notify_expires);
+
+            /* Add expire and notify expire keys */
+            tkeys = vkeys + nkeys;
+
             if (used || vkeys) {
-                redisLog(REDIS_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
+                redisLog(REDIS_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,tkeys,size);
                 /* dictPrintStats(server.dict); */
             }
         }
@@ -1443,6 +1457,7 @@ void initServer() {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
+        server.db[j].notify_expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&setDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
@@ -2346,14 +2361,15 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys;
+            long long keys, vkeys, nkeys;
 
             keys = dictSize(server.db[j].dict);
             vkeys = dictSize(server.db[j].expires);
+            nkeys = dictSize(server.db[j].notify_expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,notify_expires=%lld,avg_ttl=%lld\r\n",
+                    j, keys, vkeys, nkeys, server.db[j].avg_ttl);
             }
         }
     }
