@@ -457,10 +457,9 @@ int removeExpireNotify(redisDb *db, robj *key) {
     return dictDelete(db->notify_expires,key->ptr) == DICT_OK;
 }
 
-void setExpireNotify(redisClient *c) {
+void setExpireNotify(redisClient *c,robj *key) {
     dictEntry *kde, *de;
-    robj *channel = createStringObject(c->argv[3]->ptr,sdslen(c->argv[3]->ptr));
-    robj *key = c->argv[1];
+    robj *channel = createStringObject(c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
 
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(c->db->dict,key->ptr);
@@ -609,8 +608,7 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     }
 }
 
-int checkKeyExists(redisClient *c) {
-    robj *key = c->argv[1];
+int checkKeyExists(redisClient *c, robj *key) {
     /* No key, return zero. */
     if (lookupKeyRead(c->db,key) == NULL) {
         addReply(c,shared.czero);
@@ -622,33 +620,46 @@ int checkKeyExists(redisClient *c) {
 
 
 void expireNotifyCommand(redisClient *c) {
-    if (checkKeyExists(c) == 1) {
-      setExpireNotify(c);
-      expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    robj *key = c->argv[2];
+    robj *topic = c->argv[1];
+
+    if (checkKeyExists(c,key) == 1) {
+        setExpireNotify(c,key);
+
+        // RE-arrange argv
+        c->argv[1] = c->argv[2];
+        c->argv[2] = c->argv[3];
+        c->argv[3] = topic;
+
+        expireGenericCommand(c,mstime(),UNIT_SECONDS);
     }
 }
 
 void expireCommand(redisClient *c) {
-    if (checkKeyExists(c) == 1) {
-      expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,mstime(),UNIT_SECONDS);
     }
 }
 
 void expireatCommand(redisClient *c) {
-    if (checkKeyExists(c) == 1) {
-      expireGenericCommand(c,0,UNIT_SECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,0,UNIT_SECONDS);
     }
 }
 
 void pexpireCommand(redisClient *c) {
-    if (checkKeyExists(c) == 1) {
-      expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
     }
 }
 
 void pexpireatCommand(redisClient *c) {
-    if (checkKeyExists(c) == 1) {
-      expireGenericCommand(c,0,UNIT_MILLISECONDS);
+    robj *key = c->argv[1];
+    if (checkKeyExists(c,key) == 1) {
+        expireGenericCommand(c,0,UNIT_MILLISECONDS);
     }
 }
 
@@ -683,6 +694,7 @@ void persistCommand(redisClient *c) {
         addReply(c,shared.czero);
     } else {
         if (removeExpire(c->db,c->argv[1])) {
+            removeExpireNotify(c->db,c->argv[1]);
             addReply(c,shared.cone);
             server.dirty++;
         } else {
